@@ -1,3 +1,20 @@
+/**
+  * This Arduino sketch implements a dynamic DNS (DDNS) client on an ESP8266.
+ * It reads a configuration from the LittleFS filesystem to connect to WiFi.
+ * It gets the public IP address of the device from an external service.
+ * If the IP changes, it updates the IP at a DDNS provider to map a hostname
+ * to the device's current public IP.
+ *
+ * The device prints the current time and IP address. If the WiFi connection
+ * fails, it falls back into Access Point (AP) mode to allow reconfiguring
+ * the WiFi credentials.
+ *
+ * @author Gavinin
+ * @licence MIT
+ * @version v1.0.0
+ * @create: created by Gavin on 2023-06-15
+ * @github https://github.com/Gavinin/HomingBeacon
+ */
 #include <Arduino.h>
 
 #include <LittleFS.h>
@@ -6,41 +23,50 @@
 #include "config/user_config.h"
 #include "services/wifiService.h"
 
+// Constants
 const uint16_t CONFIG_TIMEOUT = 60 * 1000;
-const char *ntpServer = "pool.ntp.org";
-const long gmtOffsetSec = 8 * 3600;
-const int daylightOffsetSec = 0;
-int refreshTimeout;
+const String NTP_SERVER = "pool.ntp.org";
+const long GMT_OFFSET_SEC = 8 * 3600;
+const int DAY_LIGHT_OFFSET_SEC = 0;
 
-String oldIP = "";
-int errorTime = 0;
-
+// Global variables
+// Stores user config
 UserConfig userConfig;
+// Stores last seen IP
+String lastIP = "";
+// Refresh interval
+int refreshTimeout;
+// Counter for Wi-Fi errors
+int errorTime = 0;
+// Flag if config file exists
+bool hasUserConfig = false;
+// Template for DDNS URL
+String urlTemplate;
+
+// Object instances
 UserConfigService *userConfigService;
-bool hasUserconfig = false;
-
-
 ESP8266WiFiClass WiFi;
 
-String url;
-
+// Function declarations
 void initUrlFromUserConfig();
 
-void sendToDDNSServer(String url);
+void sendToDDNSServer(const String& url);
 
 String getIpFromIpServer();
 
 void printTime();
 
+
 void setup() {
+    // Serial and LittleFS initialization
     Serial.begin(115200);
     LittleFS.begin();
     userConfigService = new UserConfigService();
     Serial.printf("userConfigService is null: %d", userConfigService == nullptr);
     // if user config can be read
-    hasUserconfig = userConfigService->readConfig();
-    Serial.printf("readConfig %d", hasUserconfig);
-    if (hasUserconfig) {
+    hasUserConfig = userConfigService->readConfig();
+    Serial.printf("readConfig %d", hasUserConfig);
+    if (hasUserConfig) {
         // Set to AP mode , connect to WI-FI
         Serial.println("Config file exist");
         WiFi.mode(WIFI_STA);
@@ -60,10 +86,11 @@ void setup() {
             Serial.print(".");
         }
         if (WifiService::isWifiConnect(WiFi)) {
-            // if successful ,it will go loop func
+            // If successful ,it will go loop func
             Serial.println("\nConnecting Wifi Successful.");
             initUrlFromUserConfig();
-            configTime(gmtOffsetSec, daylightOffsetSec, ntpServer);
+            // Sync time
+            configTime(GMT_OFFSET_SEC, DAY_LIGHT_OFFSET_SEC, NTP_SERVER);
 
         } else {
             // If failed
@@ -84,19 +111,20 @@ void setup() {
 
 
 void loop() {
+    // Handle Wi-Fi connected mode
     if (WifiService::isWifiConnect(WiFi)) {
         errorTime = 0;
 
         printTime();
-        String publicIP = getIpFromIpServer();
-        if (publicIP != "") {
-            publicIP.trim();
-            Serial.printf("\nPublic IP address: %s", publicIP.c_str());
-            if (publicIP != oldIP) {
-                oldIP = publicIP;
-                // if oldIP is not similarly between current IP, update DDNS
-                String urlTmp = url;
-                urlTmp.replace("$PUBLIC_IP", String(publicIP.c_str()));
+        String currentIP = getIpFromIpServer();
+        if (currentIP != "") {
+            currentIP.trim();
+            Serial.printf("\nPublic IP address: %s", currentIP.c_str());
+            if (currentIP != lastIP) {
+                lastIP = currentIP;
+                // if lastIP is not similarly between current IP, update DDNS
+                String urlTmp = urlTemplate;
+                urlTmp.replace("$PUBLIC_IP", String(currentIP.c_str()));
                 Serial.printf("Address: %s", urlTmp.c_str());
                 sendToDDNSServer(urlTmp);
 
@@ -109,7 +137,12 @@ void loop() {
         }
 
     } else {
-        if (hasUserconfig) {
+        // Handle AP mode
+        // Or retry connecting to Wi-Fi
+
+        // If config exist, but Wi-Fi isn't connect.
+        // It will restart after retry 3 times.
+        if (hasUserConfig) {
             errorTime++;
             if (errorTime > 3) {
                 EspClass::restart();
@@ -121,25 +154,32 @@ void loop() {
     }
 }
 
-
+/**
+ * Initializes DDNS URL Template from user config
+ */
 void initUrlFromUserConfig() {
-    url = userConfig.ddns_url;
-    url.replace("$DDNS_DOMAIN", userConfig.ddns_domain);
+    urlTemplate = userConfig.ddns_url;
+    urlTemplate.replace("$DDNS_DOMAIN", userConfig.ddns_domain);
     if (userConfig.ddns_hostname != "") {
-        url.replace("$DDNS_HOSTNAME", userConfig.ddns_hostname);
+        urlTemplate.replace("$DDNS_HOSTNAME", userConfig.ddns_hostname);
     }
     if (userConfig.ddns_password != "") {
-        url.replace("$DDNS_PASSWORD", userConfig.ddns_password);
+        urlTemplate.replace("$DDNS_PASSWORD", userConfig.ddns_password);
     }
 
-    Serial.printf("Init url: %s", url.c_str());
+    Serial.printf("Init url: %s", urlTemplate.c_str());
 }
 
+/**
+ * Gets public IP from web service
+ * @return current IP address
+ */
 String getIpFromIpServer() {
     String result = "";
     // Get IP from WI-FI IP address
     HTTPClient ipServerHttp;
     WiFiClient ipSercerWifiClient;
+    // Make HTTP request
     ipServerHttp.begin(ipSercerWifiClient, userConfig.ip_service_url);
     int httpCode = ipServerHttp.GET();
 
@@ -151,8 +191,12 @@ String getIpFromIpServer() {
     return result;
 }
 
-void sendToDDNSServer(String url) {
-    // send message to DDNS server
+/**
+ * Sends update to DDNS server
+ * @param url
+ */
+void sendToDDNSServer(const String& url) {
+    // send a message to DDNS server
     HTTPClient ddnsServerHttp;
     WiFiClient ddnsSercerWifiClient;
     ddnsServerHttp.begin(ddnsSercerWifiClient, url.c_str());
@@ -164,6 +208,9 @@ void sendToDDNSServer(String url) {
 
 }
 
+/**
+ * Print current time in Serial
+ */
 void printTime() {
     struct tm timeInfo{};
     if (getLocalTime(&timeInfo)) {
