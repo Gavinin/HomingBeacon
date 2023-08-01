@@ -4,6 +4,7 @@
 
 #include <LittleFS.h>
 #include "user_config.h"
+#include "utils/stringUtil.h"
 #include <ArduinoJson.h>
 
 const String CONFIG_FILE = "/config.txt";
@@ -28,6 +29,7 @@ void UserConfigService::saveConfigToFS(UserConfig *userConfig) {
     doc["ddns_url"] = userConfig->ddns_url.c_str();
     doc["ip_service_url"] = userConfig->ip_service_url.c_str();
     doc["refresh_timeout"] = userConfig->refresh_timeout.c_str();
+    doc["wifi_error_times"] = userConfig->wifi_error_times.c_str();
 
     String jsonStr;
     serializeJson(doc, jsonStr);
@@ -75,8 +77,13 @@ bool UserConfigService::checkConfigProperties(UserConfig *config) {
         return false;
     }
 
-    if (config->refresh_timeout == "0") {
+    if (config->refresh_timeout == "0" || StringUtil::isNotDigital(config->refresh_timeout.c_str())) {
         Serial.println("refresh_timeout:" + config->refresh_timeout);
+        return false;
+    }
+
+    if (StringUtil::isNotDigital(config->wifi_error_times.c_str())) {
+        Serial.println("wifi_error_times:" + config->wifi_error_times);
         return false;
     }
 
@@ -106,10 +113,12 @@ bool UserConfigService::readConfig() {
             this->config.ddns_url = doc["ddns_url"].as<String>();
             this->config.ip_service_url = doc["ip_service_url"].as<String>();
             this->config.refresh_timeout = doc["refresh_timeout"].as<String>();
+            this->config.wifi_error_times = doc["wifi_error_times"].as<String>();
 
             Serial.printf("local configFile: %s \n%s \n%s \n%s \n%s \n%s",
                           this->config.wifi_ssid.c_str(),
-                          this->config.wifi_password.c_str(), this->config.ddns_hostname.c_str(), this->config.ddns_domain.c_str(),
+                          this->config.wifi_password.c_str(), this->config.ddns_hostname.c_str(),
+                          this->config.ddns_domain.c_str(),
                           this->config.ddns_password.c_str(), this->config.ddns_url.c_str());
 
             configFile.close();

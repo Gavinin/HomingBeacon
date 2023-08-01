@@ -38,6 +38,7 @@ String lastIP = "";
 int refreshTimeout;
 // Counter for Wi-Fi errors
 int errorTime = 0;
+int maxErrorTime = 0;
 // Flag if config file exists
 bool hasUserConfig = false;
 // Template for DDNS URL
@@ -50,7 +51,7 @@ ESP8266WiFiClass WiFi;
 // Function declarations
 void initUrlFromUserConfig();
 
-void sendToDDNSServer(const String& url);
+void sendToDDNSServer(const String &url);
 
 String getIpFromIpServer();
 
@@ -67,7 +68,7 @@ void setup() {
     hasUserConfig = userConfigService->readConfig();
     Serial.printf("readConfig %d", hasUserConfig);
     if (hasUserConfig) {
-        // Set to AP mode , connect to WI-FI
+        // Set to AP mode, connect to WI-FI
         Serial.println("Config file exist");
         WiFi.mode(WIFI_STA);
         userConfig = userConfigService->getUserConfig();
@@ -86,9 +87,12 @@ void setup() {
             Serial.print(".");
         }
         if (WifiService::isWifiConnect(WiFi)) {
-            // If successful ,it will go loop func
+            // If successful, it will go loop func
             Serial.println("\nConnecting Wifi Successful.");
             initUrlFromUserConfig();
+            // Initial maxErrorTime
+            maxErrorTime = userConfig.wifi_error_times.toInt();
+
             // Sync time
             configTime(GMT_OFFSET_SEC, DAY_LIGHT_OFFSET_SEC, NTP_SERVER);
 
@@ -122,7 +126,7 @@ void loop() {
             Serial.printf("\nPublic IP address: %s", currentIP.c_str());
             if (currentIP != lastIP) {
                 lastIP = currentIP;
-                // if lastIP is not similarly between current IP, update DDNS
+                // if lastIP is not similar between current IP, update DDNS
                 String urlTmp = urlTemplate;
                 urlTmp.replace("$PUBLIC_IP", String(currentIP.c_str()));
                 Serial.printf("Address: %s", urlTmp.c_str());
@@ -140,11 +144,11 @@ void loop() {
         // Handle AP mode
         // Or retry connecting to Wi-Fi
 
-        // If config exist, but Wi-Fi isn't connect.
+        // If config exists, but Wi-Fi isn't connected.
         // It will restart after retry 3 times.
         if (hasUserConfig) {
             errorTime++;
-            if (errorTime > 3) {
+            if (maxErrorTime > 0 && errorTime > maxErrorTime) {
                 EspClass::restart();
             }
             Serial.printf("Wifi connect error %d times.", errorTime);
@@ -195,7 +199,7 @@ String getIpFromIpServer() {
  * Sends update to DDNS server
  * @param url
  */
-void sendToDDNSServer(const String& url) {
+void sendToDDNSServer(const String &url) {
     // send a message to DDNS server
     HTTPClient ddnsServerHttp;
     WiFiClient ddnsSercerWifiClient;

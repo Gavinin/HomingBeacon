@@ -36,6 +36,7 @@ void handleSetInfoSave() {
     userConfigInp->ddns_url = server.arg("ddns_url");
     userConfigInp->ip_service_url = server.arg("ip_service_url");
     userConfigInp->refresh_timeout = server.arg("refresh_timeout");
+    userConfigInp->wifi_error_times = server.arg("wifi_error_times");
 
     //check user input legally
     if (UserConfigService::checkConfigProperties(userConfigInp)) {

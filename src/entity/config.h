@@ -17,6 +17,7 @@ public:
     String ddns_url;
     String ip_service_url;
     String refresh_timeout;
+    String wifi_error_times;
 };
 
 
