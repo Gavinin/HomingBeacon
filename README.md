@@ -1,4 +1,5 @@
-# ESP8266 DDNS Client
+# HomingBeacon
+ESP8266 DDNS Client
 
 This is a DDNS (Dynamic DNS) client for the ESP8266 module, which allows you to access your device from anywhere in the world using a domain name instead of an IP address.
 
